@@ -49,14 +49,19 @@ void Canvas::end() {
 // x corresponds to the column, y to the row
 void Canvas::vertex(int x, int y) {
   if (_primitive != UNDEFINED) {
-    if (x >= 0 && y >= 0 && x <= _canvas.width() && y <= _canvas.height()) {
+      // clip vertex to size of canvas
+      if (x < 0) {
+        x = 0;
+      } else if (x >= _canvas.width()) {
+        x = _canvas.width() - 1;
+      }
+      if (y < 0) {
+        y = 0;
+      } else if (y >= _canvas.height()) {
+        y = _canvas.height() - 1;
+      }
       Vertex vertex = {x, y, _color};
       _vertices.push_back(vertex);
-    } else {
-      // vertex out of bounds
-      printf("Error: point (%d, %d) is out of bounds for width %d "
-          "and height %d\n", x, y, _canvas.width(), _canvas.height());
-    }
   } else {  // _primitive == UNDEFINED
     // should not add vertices without specifying type with begin()
     cout << "Error: cannot add vertices without specifying type" << endl;
