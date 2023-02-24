@@ -26,7 +26,7 @@ namespace agl {
     int n;  // num petals n if n is odd, otherwise 2n
     int d;  // used to calculate angular frequency k = n / d
     Pixel color;
-    int width;  // line width in pixels
+    bool fill;  // true if shape should be filled, otherwise false
   };
 
   class Canvas {
@@ -52,17 +52,15 @@ namespace agl {
 
       // Specify a vertex at raster position (x,y)
       // x corresponds to the column; y to the row
-      void vertex(int x, int y);
+      void vertex(int x, int y, bool fill = false);
 
       // specify a center at (x,y) and specified radius/amplitude (in pixels)
       // and an optional value for n and d (used in rose curves)
-      void center(int x, int y, int radius, int n = 1, int d = 1);
+      void center(int x, int y, int radius, int n = 1, int d = 1,
+          bool fill = false);
 
       // Specify a color with components in range [0,255]
       void color(unsigned char r, unsigned char g, unsigned char b);
-
-      // set custom line width in pixels
-      void lineWidth(int width);
 
       // Fill the canvas with the given background color
       void background(unsigned char r, unsigned char g, unsigned char b);
@@ -72,22 +70,30 @@ namespace agl {
       Pixel _color;  // current color
       PrimitiveType _primitive;  // current primitive being drawn
       std::vector<Vertex> _vertices;  // list of vertices to draw
-      int _lineWidth;
 
       // treat each pair of unique vertices in a given list of points
       // as endpoints of a line
       void drawLines(std::vector<Vertex>& points);
       // helper function to draw low line in Bresenham's
-      void drawLineLow(Vertex& a, Vertex& b, int width);
+      void drawLineLow(Vertex& a, Vertex& b);
       // helper function to draw high line in Bresenham's
-      void drawLineHigh(Vertex& a, Vertex& b, int width);
+      void drawLineHigh(Vertex& a, Vertex& b);
 
       // treat each triplet of unique vertices as vertices of a triangle
-      // and draw a filled color triangle
       void drawTriangles();
+      // helper function to draw filled triangle with gouraud shading
+      void drawTriangleFill(const Vertex& p0, const Vertex& p1,
+          const Vertex& p2);
+      // helper function to draw outlined triangle (i.e. lines)
+      void drawTriangleNoFill(const Vertex& p0, const Vertex& p1,
+          const Vertex& p2);
 
-      // draw circles using polyline approximation
+      // draw circles by center and radius
       void drawCircles();
+      // draw filled circle according to pixel distance from radius
+      void drawCircleFill(const Vertex& center);
+      // draw circle circumference using polyline approximation
+      void drawCircleNoFill(const Vertex& center);
 
       // draw rose curves using angular frequency k = n / d and amplitude a
       void drawRoses();

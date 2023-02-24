@@ -13,9 +13,11 @@ using namespace std;
 using namespace agl;
 
 Canvas::Canvas(int w, int h) : _canvas(w, h) {
-  _color = {0, 0, 0};  // default black color
+  // default black color
+  _color.r = 0;
+  _color.g = 0;
+  _color.b = 0;
   _primitive = UNDEFINED;  // nothing being drawn
-  _lineWidth = 1;  // default one-pixel lines
 }
 
 Canvas::~Canvas() {  }  // Image destructor should free canvas already
@@ -54,10 +56,10 @@ void Canvas::end() {
 
 // Specify a vertex at raster position (x,y)
 // x corresponds to the column, y to the row
-void Canvas::vertex(int x, int y) {
+void Canvas::vertex(int x, int y, bool fill) {
   if (_primitive == LINES || _primitive == TRIANGLES) {
     // clip vertex to size of canvas
-    Vertex vertex = {x, y, 1, 0, 0, _color, _lineWidth};
+    Vertex vertex = {x, y, 1, 0, 0, _color, fill};
     clamp(vertex);
     _vertices.push_back(vertex);
   } else {
@@ -66,31 +68,26 @@ void Canvas::vertex(int x, int y) {
   }
 }
 
-void Canvas::center(int x, int y, int radius, int n, int d) {
+void Canvas::center(int x, int y, int radius, int n, int d, bool fill) {
   if (_primitive == CIRCLES) {
     // don't necessarily need to clamp center coordinates,
     // just clamp lines when drawing circumference
-    Vertex center = {x, y, radius, 0, 0, _color, _lineWidth};
+    Vertex center = {x, y, radius, 0, 0, _color, fill};
     _vertices.push_back(center);
   } else if (_primitive == ROSES || _primitive == MAURERS) {
     // "radius" parameter treated as amplitude for rose curves
-    Vertex center = {x, y, radius, n, d, _color, _lineWidth};
+    // rose curves cannot be filled currently
+    Vertex center = {x, y, radius, n, d, _color, false};
     _vertices.push_back(center);
   } else {
-    cout << "Error: cannot draw circle without specifying circular type" << endl;
+    cout << "Error: cannot draw center without circular type" << endl;
   }
 }
 
 void Canvas::color(unsigned char r, unsigned char g, unsigned char b) {
-  _color = {r, g, b};
-}
-
-void Canvas::lineWidth(int width) {
-  if (width > 0) {
-    _lineWidth = width;
-  } else {
-    cout << "Error: cannot set a non-positive line width" << endl;
-  }
+  _color.r = r;
+  _color.g = g;
+  _color.b = b;
 }
 
 void Canvas::background(unsigned char r, unsigned char g, unsigned char b) {
@@ -119,7 +116,7 @@ void Canvas::drawLines(vector<Vertex>& points) {
         b = a;
         a = temp;
       }
-      drawLineLow(a, b, a.width);
+      drawLineLow(a, b);
     } else {
       if (a.y > b.y) {
         // swap a and b
@@ -127,12 +124,12 @@ void Canvas::drawLines(vector<Vertex>& points) {
         b = a;
         a = temp;
       }
-      drawLineHigh(a, b, a.width);
+      drawLineHigh(a, b);
     }
   }
 }
 
-void Canvas::drawLineLow(Vertex& a, Vertex& b, int width) {
+void Canvas::drawLineLow(Vertex& a, Vertex& b) {
   int y = a.y;
   int w = b.x - a.x;  // width
   int h = b.y - a.y;  // height
@@ -143,16 +140,8 @@ void Canvas::drawLineLow(Vertex& a, Vertex& b, int width) {
   }
   int F = (2 * h) - w;
   for (int x = a.x; x <= b.x; x++) {
-    Pixel col = interpolLinear(a, b, x, y);
-    _canvas.set(y, x, col);
-    // color up to line width horizontally
-    for (int i = 1; i < width; i++) {
-      int offset = ((i + 1) / 2) * pow(-1, i);
-      Vertex v = {x + offset, y, 0, 0, 0, col, 0};
-      clamp(v);
-      // y = row i, x = col j
-      _canvas.set(v.y, v.x, col);
-    }
+    // y = row i, x = col j
+    _canvas.set(y, x, interpolLinear(a, b, x, y));
     if (F > 0) {
       y += dy;
       F += 2 * (h - w);
@@ -162,7 +151,7 @@ void Canvas::drawLineLow(Vertex& a, Vertex& b, int width) {
   }
 }
 
-void Canvas::drawLineHigh(Vertex& a, Vertex& b, int width) {
+void Canvas::drawLineHigh(Vertex& a, Vertex& b) {
   int x = a.x;
   int w = b.x - a.x;  // width
   int h = b.y - a.y;  // height
@@ -173,16 +162,8 @@ void Canvas::drawLineHigh(Vertex& a, Vertex& b, int width) {
   }
   int F = (2 * w) - h;
   for (int y = a.y; y <= b.y; y++) {
-    Pixel col = interpolLinear(a, b, x, y);
-    _canvas.set(y, x, col);
-    // color up to line width vertically
-    for (int i = 1; i < width; i++) {
-      int offset = ((i + 1) / 2) * pow(-1, i);
-      Vertex v = {x, y + offset, 0, 0, 0, col, 0};
-      clamp(v);
-      // y = row i, x = col j
-      _canvas.set(v.y, v.x, col);
-    }
+    // y = row i, x = col j
+    _canvas.set(y, x, interpolLinear(a, b, x, y));
     if (F > 0) {
       x += dx;
       F += 2 * (w - h);
@@ -195,48 +176,97 @@ void Canvas::drawLineHigh(Vertex& a, Vertex& b, int width) {
 void Canvas::drawTriangles() {
   int numTriangles = _vertices.size() / 3;
   for (int i = 0; i < numTriangles; i++) {
-    Vertex p0 = _vertices[i * 3];
-    Vertex p1 = _vertices[i * 3 + 1];
-    Vertex p2 = _vertices[i * 3 + 2];
-    // compute min and max among 3 vertices, i.e. bounding box
-    int xmin = min(min(p0.x, p1.x), p2.x);
-    int xmax = max(max(p0.x, p1.x), p2.x);
-    int ymin = min(min(p0.y, p1.y), p2.y);
-    int ymax = max(max(p0.y, p1.y), p2.y);
-    // iterate over bounding box
-    for (int y = ymin; y <= ymax; y++) {
-      for (int x = xmin; x <= xmax; x++) {
-        // compute barycentric coordinates
-        float fAlpha = implicit(p1, p2, p0.x, p0.y);
-        float fBeta = implicit(p2, p0, p1.x, p1.y);
-        float fGamma = implicit(p0, p1, p2.x, p2.y);
-        float alpha = implicit(p1, p2, x, y) / fAlpha;
-        float beta = implicit(p2, p0, x, y) / fBeta;
-        float gamma = implicit(p0, p1, x, y) / fGamma;
-        if (alpha >= 0 && beta >= 0 and gamma >= 0) {
-          // use (-5, -1.1) as offscreen comparator point
-          if ((alpha > 0 || (fAlpha * implicit(p1, p2, -5, -1.1)) > 0) &&
-              (beta > 0 || (fBeta * implicit(p2, p0, -5, -1.1)) > 0) &&
-              (gamma > 0 || (fGamma * implicit(p0, p1, -5, -1.1)) > 0)) {
-            // point is inside or on edge that this triangle owns
-            // y = col j, x = row i
-            _canvas.set(y, x, interpolGouraud(p0, p1, p2, alpha, beta, gamma));
-          }
+    if (_vertices[i * 3].fill) {
+      // first vertex's fill property determines fill for entire triangle
+      drawTriangleFill(_vertices[i * 3], _vertices[i * 3 + 1],
+          _vertices[i * 3 + 2]);
+    } else {
+      drawTriangleNoFill(_vertices[i * 3], _vertices[i * 3 + 1],
+          _vertices[i * 3 + 2]);
+    }
+  }
+}
+
+void Canvas::drawTriangleFill(const Vertex& p0, const Vertex& p1,
+    const Vertex& p2) {
+  // compute min and max among 3 vertices, i.e. bounding box
+  int xmin = min(min(p0.x, p1.x), p2.x);
+  int xmax = max(max(p0.x, p1.x), p2.x);
+  int ymin = min(min(p0.y, p1.y), p2.y);
+  int ymax = max(max(p0.y, p1.y), p2.y);
+  // iterate over bounding box
+  for (int y = ymin; y <= ymax; y++) {
+    for (int x = xmin; x <= xmax; x++) {
+      // compute barycentric coordinates
+      float fAlpha = implicit(p1, p2, p0.x, p0.y);
+      float fBeta = implicit(p2, p0, p1.x, p1.y);
+      float fGamma = implicit(p0, p1, p2.x, p2.y);
+      float alpha = implicit(p1, p2, x, y) / fAlpha;
+      float beta = implicit(p2, p0, x, y) / fBeta;
+      float gamma = implicit(p0, p1, x, y) / fGamma;
+      if (alpha >= 0 && beta >= 0 and gamma >= 0) {
+        // use (-5, -1.1) as offscreen comparator point
+        if ((alpha > 0 || (fAlpha * implicit(p1, p2, -5, -1.1)) > 0) &&
+            (beta > 0 || (fBeta * implicit(p2, p0, -5, -1.1)) > 0) &&
+            (gamma > 0 || (fGamma * implicit(p0, p1, -5, -1.1)) > 0)) {
+          // point is inside or on edge that this triangle owns
+          // y = col j, x = row i
+          _canvas.set(y, x, interpolGouraud(p0, p1, p2, alpha, beta, gamma));
         }
       }
     }
   }
 }
 
+void Canvas::drawTriangleNoFill(const Vertex& p0, const Vertex& p1,
+    const Vertex& p2) {
+  vector<Vertex> points;
+  points.push_back(p0);
+  points.push_back(p1);
+  points.push_back(p1);
+  points.push_back(p2);
+  points.push_back(p2);
+  points.push_back(p0);
+  drawLines(points);
+}
+
 void Canvas::drawCircles() {
   for (int i = 0; i < _vertices.size(); i++) {
-    int cx = _vertices[i].x;  // center x
-    int cy = _vertices[i].y;  // center y
-    int r = _vertices[i].radius;
-    Pixel color = _vertices[i].color;
+    if (_vertices[i].fill) {
+      drawCircleFill(_vertices[i]);
+    } else {
+      drawCircleNoFill(_vertices[i]);
+    }
+  }
+}
+
+void Canvas::drawCircleFill(const Vertex& center) {
+  int startRow = center.y - center.radius;
+  int endRow = center.y + center.radius;
+  int startCol = center.x - center.radius;
+  int endCol = center.x + center.radius;
+  Vertex a = {startCol, startRow, 0, 0, 0, center.color, false};
+  Vertex b = {endCol, endRow, 0, 0, 0, center.color, false};
+  clamp(a);
+  clamp(b);
+  for (int y = a.y; y <= b.y; y++) {
+    for (int x = a.x; x <= b.x; x++) {
+      int distance = sqrt(pow(x - center.x, 2) + pow(y - center.y, 2));
+      if (distance <= center.radius) {
+        _canvas.set(y, x, center.color);
+      }
+    }
+  }
+}
+
+void Canvas::drawCircleNoFill(const Vertex& center) {
+  int cx = center.x;  // center x
+    int cy = center.y;  // center y
+    int r = center.radius;
+    Pixel color = center.color;
     vector<Vertex> points;
     // use 2r points to approximate the circle
-    float delta = (2 * M_PI) / (2 * r);
+    float delta = (2 * M_PI) / (1.5 * r);
     for (float theta = 0.0; theta <= 2 * M_PI; theta += delta) {
       Vertex a, b;
       a.x = round(cx + (r * cos(theta)));
@@ -251,7 +281,6 @@ void Canvas::drawCircles() {
       points.push_back(b);
     }
     drawLines(points);
-  }
 }
 
 void Canvas::drawRoses() {
@@ -324,7 +353,8 @@ void Canvas::drawMaurers() {
   }
 }
 
-Pixel Canvas::interpolLinear(const Vertex& p1, const Vertex& p2, int x, int y) {
+Pixel Canvas::interpolLinear(const Vertex& p1, const Vertex& p2,
+    int x, int y) {
   float t = (sqrt(pow(x - p1.x, 2) + pow(y - p1.y, 2))) /
       (sqrt(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2)));
   struct Pixel c;

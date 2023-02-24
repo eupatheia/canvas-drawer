@@ -42,11 +42,11 @@ int main(int argc, char** argv)
    drawer.background(0, 0, 0);
    drawer.begin(TRIANGLES);
    drawer.color(255, 0, 255);
-   drawer.vertex(10, 0);
+   drawer.vertex(10, 0, true);
    drawer.color(0, 255, 255);
-   drawer.vertex(90, 50);
+   drawer.vertex(90, 50, true);
    drawer.color(255, 255, 0);
-   drawer.vertex(10, 90);
+   drawer.vertex(10, 90, true);
    drawer.end();
    drawer.save("triangle.png");
 
@@ -54,14 +54,14 @@ int main(int argc, char** argv)
    drawer.background(0, 0, 0);
    drawer.begin(TRIANGLES);
    drawer.color(255, 0, 255);
-   drawer.vertex(10, 10);
-   drawer.vertex(10, 90);
-   drawer.vertex(90, 90);
+   drawer.vertex(10, 10, true);
+   drawer.vertex(10, 90, true);
+   drawer.vertex(90, 90, true);
 
    drawer.color(255, 255, 0);
-   drawer.vertex(90, 90);
-   drawer.vertex(90, 10);
-   drawer.vertex(10, 10);
+   drawer.vertex(90, 90, true);
+   drawer.vertex(90, 10, true);
+   drawer.vertex(10, 10, true);
    drawer.end();
    drawer.save("quad.png");
 
