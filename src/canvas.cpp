@@ -1,6 +1,6 @@
 /* canvas.cpp
- * Implementation of a Canvas class that can draw lines and triangles on
- * a raster image, given specified vertices and colors
+ * Implementation of a Canvas class that can draw lines, triangles, and
+ * circles on a raster image, given specified vertices and colors
  * @author JL
  * @version February 16, 2023
  */
@@ -15,6 +15,7 @@ using namespace agl;
 Canvas::Canvas(int w, int h) : _canvas(w, h) {
   _color = {0, 0, 0};  // default black color
   _primitive = UNDEFINED;  // nothing being drawn
+  _lineWidth = 1;  // default one-pixel lines
 }
 
 Canvas::~Canvas() {  }  // Image destructor should free canvas already
@@ -37,9 +38,15 @@ void Canvas::begin(PrimitiveType type) {
 void Canvas::end() {
   // draw the primitive specified
   if (_primitive == LINES) {
-    drawLines();
+    drawLines(_vertices);
   } else if (_primitive == TRIANGLES) {
     drawTriangles();
+  } else if (_primitive == CIRCLES) {
+    drawCircles();
+  } else if (_primitive == ROSES) {
+    drawRoses();
+  } else if (_primitive == MAURERS) {
+    drawMaurers();
   }
   _primitive = UNDEFINED;  // signal no further drawing
   _vertices.clear();  // reset vertex list
@@ -48,28 +55,42 @@ void Canvas::end() {
 // Specify a vertex at raster position (x,y)
 // x corresponds to the column, y to the row
 void Canvas::vertex(int x, int y) {
-  if (_primitive != UNDEFINED) {
-      // clip vertex to size of canvas
-      if (x < 0) {
-        x = 0;
-      } else if (x >= _canvas.width()) {
-        x = _canvas.width() - 1;
-      }
-      if (y < 0) {
-        y = 0;
-      } else if (y >= _canvas.height()) {
-        y = _canvas.height() - 1;
-      }
-      Vertex vertex = {x, y, _color};
-      _vertices.push_back(vertex);
-  } else {  // _primitive == UNDEFINED
+  if (_primitive == LINES || _primitive == TRIANGLES) {
+    // clip vertex to size of canvas
+    Vertex vertex = {x, y, 1, 0, 0, _color, _lineWidth};
+    clamp(vertex);
+    _vertices.push_back(vertex);
+  } else {
     // should not add vertices without specifying type with begin()
-    cout << "Error: cannot add vertices without specifying type" << endl;
+    cout << "Error: cannot add vertices to invalid type" << endl;
+  }
+}
+
+void Canvas::center(int x, int y, int radius, int n, int d) {
+  if (_primitive == CIRCLES) {
+    // don't necessarily need to clamp center coordinates,
+    // just clamp lines when drawing circumference
+    Vertex center = {x, y, radius, 0, 0, _color, _lineWidth};
+    _vertices.push_back(center);
+  } else if (_primitive == ROSES || _primitive == MAURERS) {
+    // "radius" parameter treated as amplitude for rose curves
+    Vertex center = {x, y, radius, n, d, _color, _lineWidth};
+    _vertices.push_back(center);
+  } else {
+    cout << "Error: cannot draw circle without specifying circular type" << endl;
   }
 }
 
 void Canvas::color(unsigned char r, unsigned char g, unsigned char b) {
   _color = {r, g, b};
+}
+
+void Canvas::lineWidth(int width) {
+  if (width > 0) {
+    _lineWidth = width;
+  } else {
+    cout << "Error: cannot set a non-positive line width" << endl;
+  }
 }
 
 void Canvas::background(unsigned char r, unsigned char g, unsigned char b) {
@@ -81,11 +102,14 @@ void Canvas::background(unsigned char r, unsigned char g, unsigned char b) {
   }
 }
 
-void Canvas::drawLines() {
-  int numLines = _vertices.size() / 2;
+//------------------------------------------------------------//
+//------------------------------------------------------------//
+
+void Canvas::drawLines(vector<Vertex>& points) {
+  int numLines = points.size() / 2;
   for (int i = 0; i < numLines; i++) {
-    Vertex a = _vertices[i * 2];
-    Vertex b = _vertices[i * 2 + 1];
+    Vertex a = points[i * 2];
+    Vertex b = points[i * 2 + 1];
     int w = b.x - a.x;
     int h = b.y - a.y;
     if (abs(h) < abs(w)) {
@@ -95,7 +119,7 @@ void Canvas::drawLines() {
         b = a;
         a = temp;
       }
-      drawLineLow(a, b);
+      drawLineLow(a, b, a.width);
     } else {
       if (a.y > b.y) {
         // swap a and b
@@ -103,12 +127,12 @@ void Canvas::drawLines() {
         b = a;
         a = temp;
       }
-      drawLineHigh(a, b);
+      drawLineHigh(a, b, a.width);
     }
   }
 }
 
-void Canvas::drawLineLow(Vertex a, Vertex b) {
+void Canvas::drawLineLow(Vertex& a, Vertex& b, int width) {
   int y = a.y;
   int w = b.x - a.x;  // width
   int h = b.y - a.y;  // height
@@ -119,8 +143,16 @@ void Canvas::drawLineLow(Vertex a, Vertex b) {
   }
   int F = (2 * h) - w;
   for (int x = a.x; x <= b.x; x++) {
-    // y = col j, x = row i
-    _canvas.set(y, x, interpolLinear(a, b, x, y));
+    Pixel col = interpolLinear(a, b, x, y);
+    _canvas.set(y, x, col);
+    // color up to line width horizontally
+    for (int i = 1; i < width; i++) {
+      int offset = ((i + 1) / 2) * pow(-1, i);
+      Vertex v = {x + offset, y, 0, 0, 0, col, 0};
+      clamp(v);
+      // y = row i, x = col j
+      _canvas.set(v.y, v.x, col);
+    }
     if (F > 0) {
       y += dy;
       F += 2 * (h - w);
@@ -130,7 +162,7 @@ void Canvas::drawLineLow(Vertex a, Vertex b) {
   }
 }
 
-void Canvas::drawLineHigh(Vertex a, Vertex b) {
+void Canvas::drawLineHigh(Vertex& a, Vertex& b, int width) {
   int x = a.x;
   int w = b.x - a.x;  // width
   int h = b.y - a.y;  // height
@@ -141,8 +173,16 @@ void Canvas::drawLineHigh(Vertex a, Vertex b) {
   }
   int F = (2 * w) - h;
   for (int y = a.y; y <= b.y; y++) {
-    // y = col j, x = row i
-    _canvas.set(y, x, interpolLinear(a, b, x, y));
+    Pixel col = interpolLinear(a, b, x, y);
+    _canvas.set(y, x, col);
+    // color up to line width vertically
+    for (int i = 1; i < width; i++) {
+      int offset = ((i + 1) / 2) * pow(-1, i);
+      Vertex v = {x, y + offset, 0, 0, 0, col, 0};
+      clamp(v);
+      // y = row i, x = col j
+      _canvas.set(v.y, v.x, col);
+    }
     if (F > 0) {
       x += dx;
       F += 2 * (w - h);
@@ -188,7 +228,103 @@ void Canvas::drawTriangles() {
   }
 }
 
-Pixel Canvas::interpolLinear(const Vertex p1, const Vertex p2, int x, int y) {
+void Canvas::drawCircles() {
+  for (int i = 0; i < _vertices.size(); i++) {
+    int cx = _vertices[i].x;  // center x
+    int cy = _vertices[i].y;  // center y
+    int r = _vertices[i].radius;
+    Pixel color = _vertices[i].color;
+    vector<Vertex> points;
+    // use 2r points to approximate the circle
+    float delta = (2 * M_PI) / (2 * r);
+    for (float theta = 0.0; theta <= 2 * M_PI; theta += delta) {
+      Vertex a, b;
+      a.x = round(cx + (r * cos(theta)));
+      a.y = round(cy + (r * sin(theta)));
+      b.x = round(cx + (r * cos(theta + delta)));
+      b.y = round(cy + (r * sin(theta + delta)));
+      a.color = color;
+      b.color = color;
+      clamp(a);
+      clamp(b);
+      points.push_back(a);
+      points.push_back(b);
+    }
+    drawLines(points);
+  }
+}
+
+void Canvas::drawRoses() {
+  for (int i = 0; i < _vertices.size(); i++) {
+    int cx = _vertices[i].x;  // center x
+    int cy = _vertices[i].y;  // center y
+    int amp = _vertices[i].radius;
+    int n = _vertices[i].n;
+    int d = _vertices[i].d;
+    Pixel color = _vertices[i].color;
+    vector<Vertex> points;
+    // use 361 * d points to approximate the rose curve
+    for (int j = 0; j < 361 * d; j++) {
+      Vertex a, b;
+      // multiply by angular frequency n/d and convert degrees to radians
+      float theta = j * (M_PI / 180);
+      float nextTheta = (j + 1) * (M_PI / 180);
+      float rad = (j * ((float) n / d)) * (M_PI / 180);
+      float nextRad = ((j + 1) * ((float) n / d)) * (M_PI / 180);
+      float r = amp * cos(rad);
+      float nextR = amp * cos(nextRad);
+      a.x = round(cx + (r * cos(theta)));
+      a.y = round(cy + (r * sin(theta)));
+      b.x = round(cx + (nextR * cos(nextTheta)));
+      b.y = round(cy + (nextR * sin(nextTheta)));
+      a.color = color;
+      b.color = color;
+      clamp(a);
+      clamp(b);
+      points.push_back(a);
+      points.push_back(b);
+    }
+    drawLines(points);
+  }
+}
+
+void Canvas::drawMaurers() {
+  for (int i = 0; i < _vertices.size(); i++) {
+    int cx = _vertices[i].x;  // center x
+    int cy = _vertices[i].y;  // center y
+    int amp = _vertices[i].radius;
+    int n = _vertices[i].n;
+    int d = _vertices[i].d;
+    Pixel color = _vertices[i].color;
+    vector<Vertex> points;
+    // draw lines to connect the 361 points on the rose curve
+    for (int j = 0; j < 361; j++) {
+      Vertex a, b;
+      // multiply by angular frequency n/d and convert degrees to radians
+      float k = j * d;
+      float nextK = (j + 1) * d;
+      float theta = k * (M_PI / 180);
+      float nextTheta = nextK * (M_PI / 180);
+      float rad = n * k * (M_PI / 180);
+      float nextRad = n * nextK * (M_PI / 180);
+      float r = amp * cos(rad);
+      float nextR = amp * cos(nextRad);
+      a.x = round(cx + (r * cos(theta)));
+      a.y = round(cy + (r * sin(theta)));
+      b.x = round(cx + (nextR * cos(nextTheta)));
+      b.y = round(cy + (nextR * sin(nextTheta)));
+      a.color = color;
+      b.color = color;
+      clamp(a);
+      clamp(b);
+      points.push_back(a);
+      points.push_back(b);
+    }
+    drawLines(points);
+  }
+}
+
+Pixel Canvas::interpolLinear(const Vertex& p1, const Vertex& p2, int x, int y) {
   float t = (sqrt(pow(x - p1.x, 2) + pow(y - p1.y, 2))) /
       (sqrt(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2)));
   struct Pixel c;
@@ -198,8 +334,8 @@ Pixel Canvas::interpolLinear(const Vertex p1, const Vertex p2, int x, int y) {
   return c;
 }
 
-Pixel Canvas::interpolGouraud(const Vertex p0, const Vertex p1,
-    const Vertex p2, float alpha, float beta, float gamma) {
+Pixel Canvas::interpolGouraud(const Vertex& p0, const Vertex& p1,
+    const Vertex& p2, float alpha, float beta, float gamma) {
   Pixel c;
   // use gouraud shading interpolation
   c.r = alpha * p0.color.r + beta * p1.color.r + gamma * p2.color.r;
@@ -208,6 +344,19 @@ Pixel Canvas::interpolGouraud(const Vertex p0, const Vertex p1,
   return c;
 }
 
-float Canvas::implicit(const Vertex a, const Vertex b, float px, float py) {
+float Canvas::implicit(const Vertex& a, const Vertex& b, float px, float py) {
   return (b.y - a.y) * (px - a.x) - (b.x - a.x) * (py - a.y);
+}
+
+void Canvas::clamp(Vertex& v) {
+  if (v.x < 0) {
+    v.x = 0;
+  } else if (v.x >= _canvas.width()) {
+    v.x = _canvas.width() - 1;
+  }
+  if (v.y < 0) {
+    v.y = 0;
+  } else if (v.y >= _canvas.height()) {
+    v.y = _canvas.height() - 1;
+  }
 }
